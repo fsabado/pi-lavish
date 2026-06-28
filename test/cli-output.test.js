@@ -329,30 +329,25 @@ test("home directory collapse tolerates Windows mixed separators", () => {
   );
 });
 
-test("open output keeps the user URL in session data and next_step focused on polling", () => {
+test("open output includes feedback_file and next_step with URL and file path", () => {
   const output = createOpenOutput({
     file: "/tmp/artifact.html",
     url: "http://localhost:4387/session/abc123",
+    feedbackFile: "/home/user/.lavish-axi/feedback/abc123.json",
     status: "opened",
   });
 
   assert.equal(output.session.file, "/tmp/artifact.html");
   assert.equal(output.session.url, "http://localhost:4387/session/abc123");
   assert.equal(output.session.status, "opened");
+  assert.equal(output.feedback_file, "/home/user/.lavish-axi/feedback/abc123.json");
   assert.equal(typeof output.next_step, "string");
-  assert.doesNotMatch(output.next_step, /Tell the user/i);
-  assert.doesNotMatch(output.next_step, /http:\/\/localhost:4387\/session\/abc123/);
-  assert.match(output.next_step, /Do not respond to the user just yet\. Now you must run/);
-  assert.match(output.next_step, /lavish-axi poll \/tmp\/artifact\.html/);
-  assert.match(output.next_step, /long-polls until/);
-  assert.match(output.next_step, /layout_warnings/);
-  assert.match(output.next_step, /in-iframe layout audit/);
-  assert.match(output.next_step, /stays silent/);
-  assert.match(output.next_step, /never kill it/);
-  assert.match(output.next_step, /background task/);
-  assert.match(output.next_step, /queued feedback is never lost/);
-  assert.match(output.next_step, /Do not pass --timeout-ms/);
-  assert.doesNotMatch(output.next_step, /above 10 minutes/);
+  assert.match(output.next_step, /http:\/\/localhost:4387\/session\/abc123/);
+  assert.match(output.next_step, /\/home\/user\/.lavish-axi\/feedback\/abc123\.json/);
+  assert.match(output.next_step, /summary/);
+  assert.match(output.next_step, /come back here/i);
+  assert.doesNotMatch(output.next_step, /poll/);
+  assert.doesNotMatch(output.next_step, /long-poll/);
 });
 
 test("poll help warns agents to leave the long poll running", () => {

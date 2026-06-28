@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { AxiError, installSessionStartHooks, RESERVED_COMMANDS, runAxiCli } from "axi-sdk-js";
 
 import { createDesignOutput, DESIGN_SYSTEM_HINT } from "./design-reference.js";
-import { clientHost, defaultPort, ensureStateDir, hostForUrl, serverLogFile, stateFile } from "./paths.js";
+import { clientHost, defaultPort, ensureStateDir, feedbackFile, hostForUrl, serverLogFile, stateFile } from "./paths.js";
 import { findPlaybook, listPlaybooks, playbookIds, PLAYBOOK_ROUTER_HELP } from "./playbooks.js";
 import { serve } from "./server.js";
 import { canonicalFile, sessionKey, SessionStore } from "./session-store.js";
@@ -154,10 +154,13 @@ export function createPlaybookOutput(args) {
   return { playbook };
 }
 
-export function createOpenOutput({ file, url, status }) {
+export function createOpenOutput({ file, url, feedbackFile: ffile, status }) {
   return {
     session: { file, url, status },
-    next_step: `Do not respond to the user just yet. Now you must run \`lavish-axi poll ${file}\`. This command long-polls until the user sends feedback, ends the session, or the real browser reports layout_warnings from the in-iframe layout audit, and it stays silent the whole time - that is normal, never kill it. If layout_warnings arrive, fix overflow, clipped text, or overlapping unreadable content and re-check before involving the human. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`lavish-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Lavish Editor and wait for more feedback.`,
+    feedback_file: ffile,
+    next_step:
+      `Artifact is open at ${url}. Respond to the user now with: (1) a 2-3 sentence summary of what the artifact shows, (2) the full URL "${url}", (3) "Click Send in Lavish when you have feedback, then come back here." ` +
+      `On your next turn, check whether \`${ffile}\` exists. If it does: read it, delete it, apply the feedback (fix layout_warnings before addressing human prompts). Edit the artifact HTML in place — the browser reloads automatically, no need to run lavish-axi open again. If it does not exist yet, tell the user feedback has not arrived and ask them to send it.`,
   };
 }
 
@@ -179,7 +182,7 @@ async function openCommand(args) {
       response.status = "ready";
     }
   }
-  return createOpenOutput({ file: absolute, url: response.url, status: response.status || "opened" });
+  return createOpenOutput({ file: absolute, url: response.url, feedbackFile: feedbackFile(sessionKey(absolute)), status: response.status || "opened" });
 }
 
 export function shouldOpenBrowser(args, env) {
