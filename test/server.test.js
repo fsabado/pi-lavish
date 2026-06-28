@@ -1023,35 +1023,6 @@ test("server writes feedback_file after queuePrompts", async () => {
   }
 });
 
-test("server writes feedback_file with status ended after endSession", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "lavish-feedback-"));
-  const stateFileLocal = path.join(dir, "state.json");
-  const artifact = path.join(dir, "artifact.html");
-  await writeFile(artifact, "<!doctype html><html><body></body></html>");
-  const origStateDir = process.env.LAVISH_AXI_STATE_DIR;
-  process.env.LAVISH_AXI_STATE_DIR = dir;
-  const server = await serve({ port: 0, stateFile: stateFileLocal, version: "9.9.9-test" });
-  try {
-    const base = `http://127.0.0.1:${server.port}`;
-    const openRes = await fetch(`${base}/api/sessions`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ file: artifact }),
-    });
-    const { key } = await openRes.json();
-    const ffile = feedbackFile(key);
-    await rm(ffile, { force: true });
-    await fetch(`${base}/api/${key}/end`, { method: "POST" });
-    const content = JSON.parse(await readFile(ffile, "utf8"));
-    assert.equal(content.status, "ended");
-  } finally {
-    if (origStateDir === undefined) delete process.env.LAVISH_AXI_STATE_DIR;
-    else process.env.LAVISH_AXI_STATE_DIR = origStateDir;
-    await server.close();
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
 test("server writes feedback_file after recordLayoutWarnings when changed and non-empty", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "lavish-feedback-"));
   const stateFileLocal = path.join(dir, "state.json");

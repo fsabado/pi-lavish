@@ -31,12 +31,9 @@ Use lavish-axi when the user asks for a visual artifact, HTML explainer, interac
 
 1. Create the HTML artifact (default location `.lavish/<name>.html` in the working directory).
 2. Run `npx -y lavish-axi <html-file>` to open or resume a review session in the browser.
-3. Run `npx -y lavish-axi poll <html-file>` to long-poll for the user's annotations, queued prompts, and browser-reported `layout_warnings`.
-   The poll stays silent until the user acts or the real browser reports fresh layout warnings - leave it running, never kill it.
-   If your harness limits how long a foreground command may run, run the poll as a background task; if it gets killed or times out anyway, just re-run it - queued feedback is never lost.
-4. If poll returns `layout_warnings`, fix overflow, clipped text, or overlapping unreadable content and re-check before involving the human.
-5. Apply human feedback, then poll again with `--agent-reply "<message>"` to reply in the browser and keep the loop going.
-6. Run `npx -y lavish-axi end <html-file>` when the review is finished.
+3. Tell the user to review the artifact, annotate elements or text, and click **Send** when ready, then switch back to pi.
+4. On your next turn, check whether the `feedback_file` path (returned by the open command) exists. If it does: read it, delete it, and apply the feedback — fix `layout_warnings` before addressing human prompts. Edit the artifact HTML in place; the browser reloads automatically.
+5. Run `npx -y lavish-axi end <html-file>` when the review is finished.
 
 ## Visual guidance
 

@@ -8,6 +8,8 @@ import express from "express";
 
 import { createArtifactSdk, deriveLavishQueueKey, isNativeInteractiveControl } from "./artifact-sdk.js";
 import { injectLavishSdk } from "./html-transform.js";
+import { feedbackDir, feedbackFile } from "./paths.js";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { bindHost, hostForUrl, linkHost } from "./paths.js";
 import { canonicalFile, SessionStore, sessionKey } from "./session-store.js";
 
@@ -105,13 +107,26 @@ export async function serve({
 
   app.post("/api/:key/prompts", async (req, res, next) => {
     try {
-      const session = await store.queuePrompts(req.params.key, req.body || {});
-      if (!session) {
-        res.status(404).json({ error: "session not found" });
-        return;
-      }
-      events.emit("feedback", req.params.key);
-      res.json({ status: "queued", pending_prompts: session.pending_prompts });
+      const key = req.params.key;
+      const body = req.body || {};
+      // Append to feedback file — read existing prompts, merge, write back.
+      const dir = feedbackDir();
+      await mkdir(dir, { recursive: true });
+      const target = feedbackFile(key);
+      let existing = { prompts: [] };
+      try { existing = JSON.parse(await readFile(target, "utf8")); } catch { /* no file yet */ }
+      const merged = {
+        status: "feedback",
+        prompts: [...(existing.prompts || []), ...(Array.isArray(body.prompts) ? body.prompts : [])],
+        dom_snapshot: String(body.domSnapshot || body.dom_snapshot || ""),
+      };
+      const tmp = `${target}.tmp`;
+      await writeFile(tmp, JSON.stringify(merged));
+      await rename(tmp, target);
+      // Best-effort: also update state.json for session history/chat log.
+      const session = await store.queuePrompts(key, body).catch(() => null);
+      events.emit("feedback", key);
+      res.json({ status: "queued", pending_prompts: session?.pending_prompts ?? 0 });
     } catch (error) {
       next(error);
     }
@@ -119,13 +134,26 @@ export async function serve({
 
   app.post("/api/:key/layout-warnings", async (req, res, next) => {
     try {
-      const result = await store.recordLayoutWarnings(req.params.key, req.body || {});
+      const key = req.params.key;
+      const body = req.body || {};
+      const result = await store.recordLayoutWarnings(key, body);
       if (!result) {
         res.status(404).json({ error: "session not found" });
         return;
       }
       if (result.changed && result.hasWarnings) {
-        events.emit("feedback", req.params.key);
+        const dir = feedbackDir();
+        await mkdir(dir, { recursive: true });
+        const target = feedbackFile(key);
+        const tmp = `${target}.tmp`;
+        await writeFile(tmp, JSON.stringify({
+          status: "feedback",
+          prompts: result.session.prompts || [],
+          dom_snapshot: result.session.dom_snapshot || "",
+          layout_warnings: result.session.layout_warnings,
+        }));
+        await rename(tmp, target);
+        events.emit("feedback", key);
       }
       res.json({ status: "recorded", layout_warnings: result.session.layout_warnings?.length || 0 });
     } catch (error) {
