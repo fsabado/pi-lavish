@@ -15,6 +15,7 @@
 ### Task 1: Add `feedbackDir()` and `feedbackFile(key)` to paths.js
 
 **Files:**
+
 - Modify: `src/paths.js`
 - Test: `test/server.test.js` (new test at bottom)
 
@@ -38,6 +39,7 @@ test("feedbackFile returns path under stateDir/feedback", () => {
 ```bash
 node --test --test-name-pattern "feedbackFile returns" test/server.test.js
 ```
+
 Expected: FAIL — `feedbackDir is not exported`
 
 **Step 3: Implement**
@@ -59,6 +61,7 @@ export function feedbackFile(key) {
 ```bash
 node --test --test-name-pattern "feedbackFile returns" test/server.test.js
 ```
+
 Expected: PASS
 
 **Step 5: Commit**
@@ -73,6 +76,7 @@ git commit -m "feat(paths): add feedbackDir and feedbackFile helpers"
 ### Task 2: Write feedback file from SessionStore
 
 **Files:**
+
 - Modify: `src/session-store.js`
 - Test: `test/server.test.js`
 
@@ -116,7 +120,9 @@ test("server writes feedback_file after recordLayoutWarnings when changed and no
   await fetch(`${base}/api/${key}/layout-warnings`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ layout_warnings: [{ selector: "body", kind: "overflow", severity: "error", overflowPx: 10, viewportWidth: 1280 }] }),
+    body: JSON.stringify({
+      layout_warnings: [{ selector: "body", kind: "overflow", severity: "error", overflowPx: 10, viewportWidth: 1280 }],
+    }),
   });
   const content = JSON.parse(await fs.readFile(ffile, "utf8"));
   assert.equal(content.status, "feedback");
@@ -129,6 +135,7 @@ test("server writes feedback_file after recordLayoutWarnings when changed and no
 ```bash
 node --test --test-name-pattern "feedback_file" test/server.test.js
 ```
+
 Expected: FAIL — file not found
 
 **Step 3: Implement atomic write helper in session-store.js**
@@ -188,6 +195,7 @@ await writeFeedbackFile(key, { status: "ended" });
 ```bash
 node --test --test-name-pattern "feedback_file" test/server.test.js
 ```
+
 Expected: all 3 PASS
 
 **Step 5: Run full test suite**
@@ -195,6 +203,7 @@ Expected: all 3 PASS
 ```bash
 pnpm test
 ```
+
 Expected: all pass
 
 **Step 6: Commit**
@@ -209,6 +218,7 @@ git commit -m "feat(session-store): write feedback_file atomically on queue/layo
 ### Task 3: Add `feedback_file` to `lavish-axi open` output + rewrite `next_step`
 
 **Files:**
+
 - Modify: `src/cli.js`
 - Test: `test/cli-output.test.js`
 
@@ -218,7 +228,12 @@ In `test/cli-output.test.js`, find `createOpenOutput` tests and add:
 
 ```js
 test("createOpenOutput includes feedback_file field", () => {
-  const out = createOpenOutput({ file: "/tmp/foo.html", url: "http://localhost:4387/session/abc", feedbackFile: "/home/user/.lavish-axi/feedback/abc.json", status: "opened" });
+  const out = createOpenOutput({
+    file: "/tmp/foo.html",
+    url: "http://localhost:4387/session/abc",
+    feedbackFile: "/home/user/.lavish-axi/feedback/abc.json",
+    status: "opened",
+  });
   assert.equal(out.feedback_file, "/home/user/.lavish-axi/feedback/abc.json");
   assert.ok(out.next_step.includes("/home/user/.lavish-axi/feedback/abc.json"));
   assert.ok(out.next_step.includes("http://localhost:4387/session/abc"));
@@ -231,6 +246,7 @@ test("createOpenOutput includes feedback_file field", () => {
 ```bash
 node --test --test-name-pattern "feedback_file field" test/cli-output.test.js
 ```
+
 Expected: FAIL
 
 **Step 3: Implement**
@@ -259,7 +275,12 @@ In `openCommand`, update the return call:
 
 ```js
 const key = sessionKey(absolute);
-return createOpenOutput({ file: absolute, url: response.url, feedbackFile: feedbackFile(key), status: response.status || "opened" });
+return createOpenOutput({
+  file: absolute,
+  url: response.url,
+  feedbackFile: feedbackFile(key),
+  status: response.status || "opened",
+});
 ```
 
 **Step 4: Run to verify it passes**
@@ -267,6 +288,7 @@ return createOpenOutput({ file: absolute, url: response.url, feedbackFile: feedb
 ```bash
 node --test --test-name-pattern "feedback_file field" test/cli-output.test.js
 ```
+
 Expected: PASS
 
 **Step 5: Run full suite**
@@ -274,6 +296,7 @@ Expected: PASS
 ```bash
 pnpm test
 ```
+
 Expected: all pass
 
 **Step 6: Commit**
@@ -288,6 +311,7 @@ git commit -m "feat(cli): include feedback_file in open output, rewrite next_ste
 ### Task 4: Delete poll command and all helpers from cli.js
 
 **Files:**
+
 - Modify: `src/cli.js`
 - Test: `test/cli-output.test.js`
 
@@ -307,6 +331,7 @@ test("poll is not a registered command", async () => {
 ```bash
 node --test --test-name-pattern "poll is not" test/cli-output.test.js
 ```
+
 Expected: FAIL — `poll` is still in COMMANDS
 
 **Step 3: Delete from cli.js**
@@ -329,6 +354,7 @@ Expected: FAIL — `poll` is still in COMMANDS
 ```bash
 node --test --test-name-pattern "poll is not" test/cli-output.test.js
 ```
+
 Expected: PASS
 
 **Step 5: Run full suite — fix any broken imports/references**
@@ -349,6 +375,7 @@ git commit -m "feat(cli): remove poll command, agent-reply, poll helpers"
 ### Task 5: Delete poll route and presence machinery from server.js
 
 **Files:**
+
 - Modify: `src/server.js`
 - Test: `test/server.test.js`
 
@@ -371,6 +398,7 @@ git commit -m "feat(cli): remove poll command, agent-reply, poll helpers"
 **Step 2: Delete the corresponding tests from server.test.js**
 
 Delete tests matching these names:
+
 - `"layout warnings wake the same long-poll feedback channel"`
 - `"long-poll sends heartbeat bytes before feedback arrives"`
 - `"SSE agent-presence reflects waiting, listening, and working"`
@@ -390,6 +418,7 @@ Delete tests matching these names:
 ```bash
 pnpm test
 ```
+
 Expected: all pass, fewer tests than before
 
 **Step 4: Commit**
@@ -404,16 +433,18 @@ git commit -m "feat(server): remove poll route, agent-reply, presence machinery"
 ### Task 6: Update chrome UI — collapse Send button, remove presence banner
 
 **Files:**
+
 - Modify: `src/server.js` (chrome HTML template string)
 - Modify: `src/chrome-client.js`
 
 **Step 1: chrome HTML (server.js)**
 
 In the chrome HTML template:
+
 - Remove `<div class="presence-banner" id="presenceBanner" hidden>...</div>`
 - Replace the split-button structure:
   ```html
-  <div class="split"><button ...>Send to Agent</button><button id="sendCaret"...></button></div>
+  <div class="split"><button ...>Send to Agent</button><button id="sendCaret" ...></button></div>
   <div class="menu send-menu" id="sendMenu" hidden>...</div>
   ```
   with a single button:
@@ -459,6 +490,7 @@ git commit -m "feat(chrome): collapse send button, remove presence banner"
 ### Task 7: Update skill.js and SKILL.md
 
 **Files:**
+
 - Modify: `src/skill.js`
 - Rebuild: `skills/lavish/SKILL.md` via `pnpm run build:skill`
 
@@ -489,6 +521,7 @@ pnpm run build:skill
 ```bash
 pnpm run check
 ```
+
 Expected: skill freshness check passes
 
 **Step 4: Commit**
@@ -507,6 +540,7 @@ git commit -m "docs(skill): rewrite workflow — file-based feedback, no poll"
 ```bash
 pnpm run check
 ```
+
 Expected: build, lint, format, typecheck, tests, skill freshness — all pass
 
 **Step 2: Smoke test**

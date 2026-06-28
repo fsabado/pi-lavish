@@ -13,11 +13,6 @@ const annotationPills = /** @type {HTMLDivElement} */ (document.getElementById("
 const chatLog = /** @type {HTMLDivElement} */ (document.getElementById("chatLog"));
 const chatInput = /** @type {HTMLTextAreaElement} */ (document.getElementById("chatInput"));
 const sendButton = /** @type {HTMLButtonElement} */ (document.getElementById("send"));
-const sendCaret = null; // removed — single send button
-const sendActions = /** @type {HTMLDivElement} */ (document.getElementById("sendActions"));
-const sendMenu = null; // removed
-const sendFromMenuButton = null; // removed
-const sendAndEndButton = null; // removed
 const annotationSwitch = /** @type {HTMLButtonElement} */ (document.getElementById("annotation"));
 const moreWrap = /** @type {HTMLDivElement} */ (document.getElementById("moreWrap"));
 const moreButton = /** @type {HTMLButtonElement} */ (document.getElementById("moreButton"));
@@ -28,7 +23,7 @@ const endButton = /** @type {HTMLButtonElement} */ (document.getElementById("end
 const copyPathButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyPath"));
 const copyHint = /** @type {HTMLSpanElement} */ (document.getElementById("copyHint"));
 const copyHintText = /** @type {HTMLSpanElement} */ (document.getElementById("copyHintText"));
-const presenceBanner = null; // removed — no agent-presence state
+// presenceBanner removed
 const endedOverlay = /** @type {HTMLDivElement} */ (document.getElementById("endedOverlay"));
 const layoutGateOverlay = /** @type {HTMLDivElement} */ (document.getElementById("layoutGateOverlay"));
 const layoutGateTitle = /** @type {HTMLDivElement} */ (document.getElementById("layoutGateTitle"));
@@ -200,9 +195,7 @@ function syncChat(chat) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function setAgentPresence() {
-  // agent-presence removed — no-op
-}
+// setAgentPresence removed — no presence state
 
 function removeQueuedPrompt(index, event) {
   if (event) event.stopPropagation();

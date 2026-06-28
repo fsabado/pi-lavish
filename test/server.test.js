@@ -8,14 +8,11 @@ import {
   createChromeHtml,
   createSdkJs,
   displayPathParts,
-  hasLiveReloadRootOptIn,
   resolveArtifactAsset,
   resolveIdleTimeoutMs,
-  resolveWatchTarget,
   serve,
 } from "../src/server.js";
-import { canonicalFile, sessionKey } from "../src/session-store.js";
-import { feedbackDir, feedbackFile, stateDir } from "../src/paths.js";
+import { feedbackFile } from "../src/paths.js";
 
 async function chromeClientSource() {
   return readFile(new URL("../src/chrome-client.js", import.meta.url), "utf8");
@@ -30,40 +27,6 @@ function normalizeCssForAssertions(css) {
     .replace(/\s*([{}:;,])\s*/g, "$1")
     .replace(/\s+/g, " ")
     .replace(/0\./g, ".");
-}
-
-async function startPresenceStream(base, key) {
-  const controller = new AbortController();
-  const res = await fetch(`${base}/events/${key}`, { signal: controller.signal });
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  return {
-    async next() {
-      const deadline = Date.now() + 500;
-      while (true) {
-        const match = buffer.match(/^event: agent-presence\ndata: (.+)\n\n/m);
-        if (match) {
-          buffer = buffer.replace(match[0], "");
-          return JSON.parse(match[1]).state;
-        }
-        const remaining = Math.max(1, deadline - Date.now());
-        const { value, done } = await Promise.race([
-          reader.read(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("timed out waiting for agent presence event")), remaining),
-          ),
-        ]);
-        if (done) throw new Error("presence stream closed before an agent presence event");
-        buffer += decoder.decode(value, { stream: true });
-      }
-    },
-    async close() {
-      controller.abort();
-      await reader.cancel().catch(() => {});
-    },
-  };
 }
 
 test("server delegates artifact SDK generation to a dedicated source module", async () => {
@@ -473,7 +436,6 @@ test("chrome can sync persisted chat after the event stream reconnects", async (
   assert.match(js, /function syncChat/);
 });
 
-
 test("chrome disables sending only when ended", async () => {
   const js = await chromeClientSource();
 
@@ -820,8 +782,6 @@ test("/artifact serves files copied under the artifact directory", async () => {
   }
 });
 
-
-
 test("/chrome-client.js serves the extracted chrome client script", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "lavish-serve-"));
   const server = await serve({ port: 0, stateFile: path.join(dir, "state.json"), version: "9.9.9-test" });
@@ -1028,7 +988,104 @@ test("ending one of several sessions keeps the server running", async () => {
   }
 });
 
+test("server writes feedback_file after queuePrompts", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-feedback-"));
+  const stateFileLocal = path.join(dir, "state.json");
+  const artifact = path.join(dir, "artifact.html");
+  await writeFile(artifact, "<!doctype html><html><body></body></html>");
+  const origStateDir = process.env.LAVISH_AXI_STATE_DIR;
+  process.env.LAVISH_AXI_STATE_DIR = dir;
+  const server = await serve({ port: 0, stateFile: stateFileLocal, version: "9.9.9-test" });
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const openRes = await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: artifact }),
+    });
+    const { key } = await openRes.json();
+    const ffile = feedbackFile(key);
+    await rm(ffile, { force: true });
+    await fetch(`${base}/api/${key}/prompts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompts: [{ tag: "message", prompt: "hello" }] }),
+    });
+    const content = JSON.parse(await readFile(ffile, "utf8"));
+    assert.equal(content.status, "feedback");
+    assert.ok(Array.isArray(content.prompts));
+    assert.equal(content.prompts[0].prompt, "hello");
+  } finally {
+    if (origStateDir === undefined) delete process.env.LAVISH_AXI_STATE_DIR;
+    else process.env.LAVISH_AXI_STATE_DIR = origStateDir;
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
+test("server writes feedback_file with status ended after endSession", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-feedback-"));
+  const stateFileLocal = path.join(dir, "state.json");
+  const artifact = path.join(dir, "artifact.html");
+  await writeFile(artifact, "<!doctype html><html><body></body></html>");
+  const origStateDir = process.env.LAVISH_AXI_STATE_DIR;
+  process.env.LAVISH_AXI_STATE_DIR = dir;
+  const server = await serve({ port: 0, stateFile: stateFileLocal, version: "9.9.9-test" });
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const openRes = await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: artifact }),
+    });
+    const { key } = await openRes.json();
+    const ffile = feedbackFile(key);
+    await rm(ffile, { force: true });
+    await fetch(`${base}/api/${key}/end`, { method: "POST" });
+    const content = JSON.parse(await readFile(ffile, "utf8"));
+    assert.equal(content.status, "ended");
+  } finally {
+    if (origStateDir === undefined) delete process.env.LAVISH_AXI_STATE_DIR;
+    else process.env.LAVISH_AXI_STATE_DIR = origStateDir;
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
-
-
+test("server writes feedback_file after recordLayoutWarnings when changed and non-empty", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-feedback-"));
+  const stateFileLocal = path.join(dir, "state.json");
+  const artifact = path.join(dir, "artifact.html");
+  await writeFile(artifact, "<!doctype html><html><body></body></html>");
+  const origStateDir = process.env.LAVISH_AXI_STATE_DIR;
+  process.env.LAVISH_AXI_STATE_DIR = dir;
+  const server = await serve({ port: 0, stateFile: stateFileLocal, version: "9.9.9-test" });
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const openRes = await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: artifact }),
+    });
+    const { key } = await openRes.json();
+    const ffile = feedbackFile(key);
+    await rm(ffile, { force: true });
+    await fetch(`${base}/api/${key}/layout-warnings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        layout_warnings: [
+          { selector: "body", kind: "overflow", severity: "error", overflowPx: 10, viewportWidth: 1280 },
+        ],
+      }),
+    });
+    const content = JSON.parse(await readFile(ffile, "utf8"));
+    assert.equal(content.status, "feedback");
+    assert.ok(content.layout_warnings.length > 0);
+  } finally {
+    if (origStateDir === undefined) delete process.env.LAVISH_AXI_STATE_DIR;
+    else process.env.LAVISH_AXI_STATE_DIR = origStateDir;
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

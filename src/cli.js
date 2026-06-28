@@ -8,7 +8,15 @@ import { fileURLToPath } from "node:url";
 import { AxiError, installSessionStartHooks, RESERVED_COMMANDS, runAxiCli } from "axi-sdk-js";
 
 import { createDesignOutput, DESIGN_SYSTEM_HINT } from "./design-reference.js";
-import { clientHost, defaultPort, ensureStateDir, feedbackFile, hostForUrl, serverLogFile, stateFile } from "./paths.js";
+import {
+  clientHost,
+  defaultPort,
+  ensureStateDir,
+  feedbackFile,
+  hostForUrl,
+  serverLogFile,
+  stateFile,
+} from "./paths.js";
 import { findPlaybook, listPlaybooks, playbookIds, PLAYBOOK_ROUTER_HELP } from "./playbooks.js";
 import { serve } from "./server.js";
 import { canonicalFile, sessionKey, SessionStore } from "./session-store.js";
@@ -180,7 +188,12 @@ async function openCommand(args) {
       response.status = "ready";
     }
   }
-  return createOpenOutput({ file: absolute, url: response.url, feedbackFile: feedbackFile(sessionKey(absolute)), status: response.status || "opened" });
+  return createOpenOutput({
+    file: absolute,
+    url: response.url,
+    feedbackFile: feedbackFile(sessionKey(absolute)),
+    status: response.status || "opened",
+  });
 }
 
 export function shouldOpenBrowser(args, env) {

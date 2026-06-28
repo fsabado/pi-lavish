@@ -52,6 +52,7 @@ Agent next turn:
 **Key:** same `sessionKey()` sha256 prefix already used everywhere.
 
 **Written by server:** atomically (write to `.tmp`, rename) after:
+
 - `POST /api/:key/prompts` — user sends feedback
 - `POST /api/:key/layout-warnings` — browser reports layout issues (changed, non-empty)
 - `POST /api/:key/end` — session ended
@@ -79,6 +80,7 @@ current pending state. Agent always sees the complete picture regardless of how 
 the user hit Send.
 
 **Agent contract:**
+
 - Read the file at the start of the turn
 - Delete it after reading (signals consumed; prevents re-reading stale feedback)
 - If the file doesn't exist, tell the user feedback hasn't arrived yet
@@ -151,60 +153,60 @@ No presence banner. No "listening" / "working" / "waiting" states. These are rem
 
 ## What Is Deleted
 
-| Deleted | Location |
-|---|---|
-| `GET /api/poll` route | `server.js` |
-| `pollHeartbeatMs` option | `server.js` |
-| `activePolls` Map | `server.js` |
-| `deliveredFeedback` Set | `server.js` |
-| `setPollActive()` | `server.js` |
-| `markFeedbackDelivered()` | `server.js` |
-| `clearFeedbackDelivery()` | `server.js` |
-| `computePresence()` | `server.js` |
-| `agent-presence` SSE event | `server.js` |
-| `pollCommand()` + all helpers | `cli.js` |
-| `pollWaitBannerText()` | `cli.js` |
-| `pollWaitTickText()` | `cli.js` |
-| `pollInterruptedText()` | `cli.js` |
-| `startPollWaitReporter()` | `cli.js` |
-| `createPollOutput()` | `cli.js` |
-| `poll` entry in `COMMANDS` set | `cli.js` |
-| `--agent-reply` flag | `cli.js` |
-| `POST /api/:key/agent-reply` route | `server.js` |
-| Presence banner `#presenceBanner` | `server.js` chrome HTML |
-| Split send button + `#sendAndEnd` | `server.js` chrome HTML + `chrome-client.js` |
-| Agent-presence logic in `chrome-client.js` | `chrome-client.js` |
-| All long-poll, heartbeat, presence tests | `test/server.test.js` |
+| Deleted                                    | Location                                     |
+| ------------------------------------------ | -------------------------------------------- |
+| `GET /api/poll` route                      | `server.js`                                  |
+| `pollHeartbeatMs` option                   | `server.js`                                  |
+| `activePolls` Map                          | `server.js`                                  |
+| `deliveredFeedback` Set                    | `server.js`                                  |
+| `setPollActive()`                          | `server.js`                                  |
+| `markFeedbackDelivered()`                  | `server.js`                                  |
+| `clearFeedbackDelivery()`                  | `server.js`                                  |
+| `computePresence()`                        | `server.js`                                  |
+| `agent-presence` SSE event                 | `server.js`                                  |
+| `pollCommand()` + all helpers              | `cli.js`                                     |
+| `pollWaitBannerText()`                     | `cli.js`                                     |
+| `pollWaitTickText()`                       | `cli.js`                                     |
+| `pollInterruptedText()`                    | `cli.js`                                     |
+| `startPollWaitReporter()`                  | `cli.js`                                     |
+| `createPollOutput()`                       | `cli.js`                                     |
+| `poll` entry in `COMMANDS` set             | `cli.js`                                     |
+| `--agent-reply` flag                       | `cli.js`                                     |
+| `POST /api/:key/agent-reply` route         | `server.js`                                  |
+| Presence banner `#presenceBanner`          | `server.js` chrome HTML                      |
+| Split send button + `#sendAndEnd`          | `server.js` chrome HTML + `chrome-client.js` |
+| Agent-presence logic in `chrome-client.js` | `chrome-client.js`                           |
+| All long-poll, heartbeat, presence tests   | `test/server.test.js`                        |
 
 ## What Is Kept
 
-| Kept | Notes |
-|---|---|
-| `POST /api/:key/prompts` | unchanged |
-| `POST /api/:key/layout-warnings` | unchanged |
-| `POST /api/:key/end` | unchanged (server still tracks ended state) |
-| `state.json` schema | unchanged |
-| SSE `/events/:key` | kept for live reload + `chrome-reload` on server restart |
-| `event: reload` SSE | chokidar → browser iframe reload, unchanged |
-| Layout audit + gate curtain | unchanged |
-| `lavish-axi open`, `stop`, `server`, `playbook`, `design`, `setup` | unchanged |
-| `--no-open`, `--no-gate` flags | unchanged |
-| Session identity via `sessionKey()` | unchanged |
+| Kept                                                               | Notes                                                    |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
+| `POST /api/:key/prompts`                                           | unchanged                                                |
+| `POST /api/:key/layout-warnings`                                   | unchanged                                                |
+| `POST /api/:key/end`                                               | unchanged (server still tracks ended state)              |
+| `state.json` schema                                                | unchanged                                                |
+| SSE `/events/:key`                                                 | kept for live reload + `chrome-reload` on server restart |
+| `event: reload` SSE                                                | chokidar → browser iframe reload, unchanged              |
+| Layout audit + gate curtain                                        | unchanged                                                |
+| `lavish-axi open`, `stop`, `server`, `playbook`, `design`, `setup` | unchanged                                                |
+| `--no-open`, `--no-gate` flags                                     | unchanged                                                |
+| Session identity via `sessionKey()`                                | unchanged                                                |
 
 ---
 
 ## New Additions
 
-| Addition | Location |
-|---|---|
-| `feedbackDir()` | `paths.js` |
-| `feedbackFile(key)` | `paths.js` |
-| Atomic feedback write after `queuePrompts` | `session-store.js` |
+| Addition                                                                 | Location           |
+| ------------------------------------------------------------------------ | ------------------ |
+| `feedbackDir()`                                                          | `paths.js`         |
+| `feedbackFile(key)`                                                      | `paths.js`         |
+| Atomic feedback write after `queuePrompts`                               | `session-store.js` |
 | Atomic feedback write after `recordLayoutWarnings` (changed + non-empty) | `session-store.js` |
-| Atomic feedback write (`{status:"ended"}`) after `endSession` | `session-store.js` |
-| `feedback_file` field in `createOpenOutput` | `cli.js` |
-| Rewritten `next_step` in `createOpenOutput` | `cli.js` |
-| "Sent." confirmation in Send button | `chrome-client.js` |
+| Atomic feedback write (`{status:"ended"}`) after `endSession`            | `session-store.js` |
+| `feedback_file` field in `createOpenOutput`                              | `cli.js`           |
+| Rewritten `next_step` in `createOpenOutput`                              | `cli.js`           |
+| "Sent." confirmation in Send button                                      | `chrome-client.js` |
 
 ---
 
@@ -265,6 +267,7 @@ browser reloads automatically. No need to run lavish-axi open again.
 ## Test Changes
 
 **Delete (~15 tests):**
+
 - Long-poll blocks until feedback
 - Long-poll heartbeat bytes
 - `GET /api/poll` timeout / disconnect / storage failure
@@ -272,6 +275,7 @@ browser reloads automatically. No need to run lavish-axi open again.
 - `--agent-reply` / `POST /api/:key/agent-reply`
 
 **Add (~4 tests):**
+
 - Server writes `feedback_file` after `queuePrompts`
 - Server writes `feedback_file` after `recordLayoutWarnings` (changed + non-empty)
 - Server writes `feedback_file` with `{status:"ended"}` after `endSession`
