@@ -33,7 +33,7 @@ interface LavishState {
 
 interface PollFeedback {
   status: "waiting" | "feedback" | "ended";
-  prompts?: Array<{ text: string; tag?: string }>;
+  prompts?: Array<{ prompt: string; text: string; tag?: string; selector?: string }>;
   layout_warnings?: unknown[];
 }
 
@@ -132,7 +132,7 @@ function startLoop(
         const parts: string[] = [];
 
         if (data.prompts?.length) {
-          parts.push(...data.prompts.map((p) => p.text).filter(Boolean));
+          parts.push(...data.prompts.map((p) => p.prompt || p.text).filter(Boolean));
         }
         if (data.layout_warnings?.length) {
           parts.push(
