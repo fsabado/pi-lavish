@@ -59,3 +59,11 @@ export async function ensureStateDir() {
 export function defaultPort() {
   return Number(process.env.LAVISH_AXI_PORT || 4387);
 }
+
+export function feedbackDir() {
+  return path.join(stateDir(), "feedback");
+}
+
+export function feedbackFile(key) {
+  return path.join(feedbackDir(), `${key}.json`);
+}

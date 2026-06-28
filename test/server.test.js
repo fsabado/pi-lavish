@@ -15,6 +15,7 @@ import {
   serve,
 } from "../src/server.js";
 import { canonicalFile, sessionKey } from "../src/session-store.js";
+import { feedbackDir, feedbackFile, stateDir } from "../src/paths.js";
 
 async function chromeClientSource() {
   return readFile(new URL("../src/chrome-client.js", import.meta.url), "utf8");
@@ -1775,4 +1776,10 @@ test("chrome client chat input sends on Enter and inserts newline on Shift+Enter
   assert.match(js, /event\.key === ["']Enter["'] && !event\.shiftKey/);
   assert.match(js, /event\.preventDefault\(\)/);
   assert.match(js, /sendQueued\(\)/);
+});
+
+test("feedbackFile returns path under stateDir/feedback", () => {
+  const key = "abc12345";
+  assert.equal(feedbackFile(key), path.join(stateDir(), "feedback", `${key}.json`));
+  assert.equal(feedbackDir(), path.join(stateDir(), "feedback"));
 });
