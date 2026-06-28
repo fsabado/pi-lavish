@@ -1,6 +1,17 @@
 import crypto from "node:crypto";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import { feedbackDir, feedbackFile } from "./paths.js";
+
+async function writeFeedbackFile(key, payload) {
+  const dir = feedbackDir();
+  await mkdir(dir, { recursive: true });
+  const target = feedbackFile(key);
+  const tmp = `${target}.tmp`;
+  await writeFile(tmp, JSON.stringify(payload));
+  await rename(tmp, target);
+}
 
 export class SessionStore {
   constructor(file) {
@@ -65,6 +76,12 @@ export class SessionStore {
     session.status = "feedback";
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
+    await writeFeedbackFile(key, {
+      status: "feedback",
+      prompts: session.prompts,
+      dom_snapshot: session.dom_snapshot || "",
+      ...(session.layout_warnings?.length ? { layout_warnings: session.layout_warnings } : {}),
+    });
     return session;
   }
 
@@ -88,6 +105,14 @@ export class SessionStore {
     }
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
+    if (layoutWarnings.length > 0) {
+      await writeFeedbackFile(key, {
+        status: "feedback",
+        prompts: session.prompts || [],
+        dom_snapshot: session.dom_snapshot || "",
+        layout_warnings: session.layout_warnings,
+      });
+    }
     return { session, changed: true, hasWarnings: layoutWarnings.length > 0 };
   }
 
@@ -131,6 +156,7 @@ export class SessionStore {
     session.status = "ended";
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
+    await writeFeedbackFile(key, { status: "ended" });
     return session;
   }
 
