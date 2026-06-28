@@ -439,13 +439,14 @@ test("chrome queued-prompt pills use the preview mock steel treatment", async ()
   assert.doesNotMatch(css, /\.pill\{[^}]*var\(--amber/);
 });
 
-test("chrome includes a chat-like prompt composer and agent reply listener", async () => {
+test("chrome includes a chat-like prompt composer", async () => {
   const html = createChromeHtml({ key: "abc", file: "/tmp/artifact.html" });
   const js = await chromeClientSource();
 
   assert.match(html, /id="chatLog"/);
   assert.match(html, /id="chatInput"/);
-  assert.match(js, /agent-reply/);
+  assert.doesNotMatch(js, /agent-reply/);
+  assert.doesNotMatch(html, /presenceBanner/);
 });
 
 test("chrome bootstraps persisted chat history so missed replies still appear", () => {
@@ -473,13 +474,12 @@ test("chrome can sync persisted chat after the event stream reconnects", async (
 });
 
 
-test("chrome disables sending only while working or ended", async () => {
+test("chrome disables sending only when ended", async () => {
   const js = await chromeClientSource();
 
-  assert.match(js, /let agentPresence = "waiting"/);
+  assert.doesNotMatch(js, /agentPresence/);
   assert.match(js, /function updateSendState\(\)/);
-  assert.match(js, /sendButton\.disabled = ended \|\| agentPresence === "working"/);
-  assert.match(js, /sendCaret\.disabled = ended \|\| agentPresence === "working"/);
+  assert.match(js, /sendButton\.disabled = ended/);
   assert.doesNotMatch(js, /hasContent/);
 });
 
@@ -495,27 +495,20 @@ test("sending with an empty composer nudges instead of blocking", async () => {
   assert.match(css, /\.send-hint\{/);
 });
 
-test("composer send is a split button with a send-and-end option", async () => {
+test("composer send is a single Send button", async () => {
   const html = createChromeHtml({ key: "abc", file: "/tmp/artifact.html" });
-  const css = await chromeCssSource();
 
-  assert.match(html, /class="button send-main" id="send">Send to Agent</);
-  assert.match(html, /class="button send-caret" id="sendCaret"/);
-  assert.match(html, /class="menu send-menu" id="sendMenu" hidden/);
-  assert.match(html, /id="sendAndEnd"[^<]*>.*Send &amp; end session/);
-  assert.match(css, /\.send-main\{[^}]*border-radius:var\(--radius-md\) 0 0 var\(--radius-md\)/);
-  assert.match(css, /\.send-caret\{[^}]*border-left:1px solid rgba\(23,19,10,.22\)/);
+  assert.match(html, /class="button send-main" id="send"[^>]*>Send</);
+  assert.doesNotMatch(html, /sendCaret/);
+  assert.doesNotMatch(html, /sendAndEnd/);
+  assert.doesNotMatch(html, /sendMenu/);
 });
 
-test("send and end submits queued prompts before ending the session", async () => {
+test("send flashes Sent. confirmation on success", async () => {
   const js = await chromeClientSource();
 
-  assert.match(js, /let endAfterSubmit = false/);
-  assert.match(js, /sendQueued\(true\)/);
-  assert.doesNotMatch(js, /const shouldEndAfterSubmit = endAfterSubmit/);
-  assert.doesNotMatch(js, /if \(shouldEndAfterSubmit\) await endSession\(\)/);
-  assert.match(js, /if \(!succeeded\) \{\n {6}endAfterSubmit = false/);
-  assert.match(js, /\} else if \(endAfterSubmit\) \{\n {6}endAfterSubmit = false;\n {6}await endSession\(\)/);
+  assert.match(js, /sendButton\.textContent = "Sent\."/);
+  assert.match(js, /sendButton\.textContent = "Send"/);
 });
 
 test("chrome only marks session ended after the end request succeeds", async () => {
@@ -526,15 +519,13 @@ test("chrome only marks session ended after the end request succeeds", async () 
   assert.match(js, /if \(!response\.ok\) throw new Error\("failed to end session"\);\n {2}ended = true/);
 });
 
-test("chrome shows a waiting banner when no agent has attached", async () => {
+test("chrome has no agent-presence banner", async () => {
   const html = createChromeHtml({ key: "abc", file: "/tmp/artifact.html" });
   const js = await chromeClientSource();
-  const css = await chromeCssSource();
 
-  assert.match(html, /id="presenceBanner"/);
-  assert.match(html, /Your agent is not listening/);
-  assert.match(js, /presenceBanner\.hidden = ended \|\| agentPresence !== "waiting"/);
-  assert.match(css, /\.presence-banner\{/);
+  assert.doesNotMatch(html, /presenceBanner/);
+  assert.doesNotMatch(html, /Your agent is not listening/);
+  assert.doesNotMatch(js, /agentPresence !== "waiting"/);
 });
 
 test("chrome puts queued annotations inside the chat composer as preview pills", async () => {

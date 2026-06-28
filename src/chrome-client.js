@@ -13,11 +13,11 @@ const annotationPills = /** @type {HTMLDivElement} */ (document.getElementById("
 const chatLog = /** @type {HTMLDivElement} */ (document.getElementById("chatLog"));
 const chatInput = /** @type {HTMLTextAreaElement} */ (document.getElementById("chatInput"));
 const sendButton = /** @type {HTMLButtonElement} */ (document.getElementById("send"));
-const sendCaret = /** @type {HTMLButtonElement} */ (document.getElementById("sendCaret"));
+const sendCaret = null; // removed — single send button
 const sendActions = /** @type {HTMLDivElement} */ (document.getElementById("sendActions"));
-const sendMenu = /** @type {HTMLDivElement} */ (document.getElementById("sendMenu"));
-const sendFromMenuButton = /** @type {HTMLButtonElement} */ (document.getElementById("sendFromMenu"));
-const sendAndEndButton = /** @type {HTMLButtonElement} */ (document.getElementById("sendAndEnd"));
+const sendMenu = null; // removed
+const sendFromMenuButton = null; // removed
+const sendAndEndButton = null; // removed
 const annotationSwitch = /** @type {HTMLButtonElement} */ (document.getElementById("annotation"));
 const moreWrap = /** @type {HTMLDivElement} */ (document.getElementById("moreWrap"));
 const moreButton = /** @type {HTMLButtonElement} */ (document.getElementById("moreButton"));
@@ -28,7 +28,7 @@ const endButton = /** @type {HTMLButtonElement} */ (document.getElementById("end
 const copyPathButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyPath"));
 const copyHint = /** @type {HTMLSpanElement} */ (document.getElementById("copyHint"));
 const copyHintText = /** @type {HTMLSpanElement} */ (document.getElementById("copyHintText"));
-const presenceBanner = /** @type {HTMLDivElement} */ (document.getElementById("presenceBanner"));
+const presenceBanner = null; // removed — no agent-presence state
 const endedOverlay = /** @type {HTMLDivElement} */ (document.getElementById("endedOverlay"));
 const layoutGateOverlay = /** @type {HTMLDivElement} */ (document.getElementById("layoutGateOverlay"));
 const layoutGateTitle = /** @type {HTMLDivElement} */ (document.getElementById("layoutGateTitle"));
@@ -41,7 +41,6 @@ const artifactSrc = frame.dataset.artifactSrc || frame.getAttribute?.("data-arti
 const queued = loadQueuedPrompts();
 let annotation = true;
 let ended = false;
-let agentPresence = "waiting";
 let pendingSnapshot = "";
 const layoutGateEnabled = sessionData.layoutGateEnabled !== false;
 const configuredLayoutGateMaxHoldMs = Number(sessionData.layoutGateMaxHoldMs);
@@ -56,8 +55,8 @@ let layoutGateCycle = 0;
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let layoutGateTimer;
 const snapshotRequests = [];
-let endAfterSubmit = false;
-let workingBubble = null;
+let endAfterSubmit = false; // kept for now, unused without sendAndEnd
+let workingBubble = null; // kept for chat sync replay
 let submitQueuedPromise = null;
 let submitQueuedAgain = false;
 let lastScroll = { x: 0, y: 0 };
@@ -129,9 +128,7 @@ function render() {
 }
 
 function updateSendState() {
-  sendButton.disabled = ended || agentPresence === "working";
-  sendCaret.disabled = ended || agentPresence === "working";
-  sendFromMenuButton.disabled = sendButton.disabled;
+  sendButton.disabled = ended;
 }
 
 function showSendHint() {
@@ -155,7 +152,6 @@ function setMenuOpen(button, menu, open) {
 
 function closeMenus() {
   setMenuOpen(moreButton, moreMenu, false);
-  setMenuOpen(sendCaret, sendMenu, false);
 }
 
 function toggleMenu(button, menu) {
@@ -204,24 +200,8 @@ function syncChat(chat) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function setAgentPresence(state) {
-  agentPresence = state === "listening" || state === "working" ? state : "waiting";
-  updateSendState();
-  if (presenceBanner) presenceBanner.hidden = ended || agentPresence !== "waiting";
-
-  if (agentPresence !== "working") {
-    if (workingBubble) workingBubble.remove();
-    workingBubble = null;
-    return;
-  }
-
-  if (!workingBubble) {
-    workingBubble = document.createElement("div");
-    workingBubble.className = "bubble agent agent-working";
-    workingBubble.innerHTML = '<span class="spinner"></span><span>Working...</span>';
-    chatLog.appendChild(workingBubble);
-  }
-  chatLog.scrollTop = chatLog.scrollHeight;
+function setAgentPresence() {
+  // agent-presence removed — no-op
 }
 
 function removeQueuedPrompt(index, event) {
@@ -270,8 +250,8 @@ function requestSnapshot(action) {
   postToFrame({ type: "lavish:requestSnapshot" });
 }
 
-function sendQueued(endAfter) {
-  if (ended || agentPresence === "working") return;
+function sendQueued() {
+  if (ended) return;
   closeMenus();
 
   const text = chatInput.value.trim();
@@ -283,16 +263,11 @@ function sendQueued(endAfter) {
     render();
   }
   if (!queued.length) {
-    if (endAfter) {
-      endSession();
-    } else {
-      showSendHint();
-    }
+    showSendHint();
     return;
   }
   hideSendHint();
 
-  if (endAfter) endAfterSubmit = true;
   requestSnapshot("submit");
 }
 
@@ -337,7 +312,13 @@ async function submitQueuedOnce() {
   }
   persistQueuedPrompts();
   render();
-  if (agentPresence === "listening") setAgentPresence("working");
+  // Flash "Sent." on the button briefly
+  sendButton.textContent = "Sent.";
+  sendButton.disabled = true;
+  setTimeout(() => {
+    sendButton.textContent = "Send";
+    updateSendState();
+  }, 1500);
 }
 
 function normalizeLayoutWarningsPayload(value) {
@@ -466,7 +447,6 @@ async function endSession() {
   moreButton.disabled = true;
   chatInput.disabled = true;
   updateSendState();
-  if (presenceBanner) presenceBanner.hidden = true;
   layoutGateManuallyBypassed = true;
   revealLayoutGate();
   postToFrame({ type: "lavish:setAnnotationMode", enabled: false });
@@ -560,15 +540,12 @@ annotationSwitch.onclick = () => {
   postToFrame({ type: "lavish:setAnnotationMode", enabled: annotation });
 };
 
-sendButton.onclick = () => sendQueued(false);
-sendFromMenuButton.onclick = () => sendQueued(false);
-sendAndEndButton.onclick = () => sendQueued(true);
-sendCaret.onclick = () => toggleMenu(sendCaret, sendMenu);
+sendButton.onclick = () => sendQueued();
 moreButton.onclick = () => toggleMenu(moreButton, moreMenu);
 chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
-    sendQueued(false);
+    sendQueued();
   }
 });
 chatInput.addEventListener("input", hideSendHint);
@@ -582,7 +559,6 @@ endButton.onclick = () => {
 document.addEventListener("mousedown", (event) => {
   const target = /** @type {Node} */ (event.target);
   if (!moreMenu.hidden && !moreWrap.contains(target)) setMenuOpen(moreButton, moreMenu, false);
-  if (!sendMenu.hidden && !sendActions.contains(target)) setMenuOpen(sendCaret, sendMenu, false);
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeMenus();
@@ -598,10 +574,7 @@ initializeLayoutGate();
 const events = new EventSource("/events/" + key);
 events.addEventListener("reload", () => resetFrame());
 events.addEventListener("chrome-reload", () => reloadAfterServerRestart());
-events.addEventListener("agent-reply", (event) => addChat("agent", JSON.parse(event.data).text));
 events.addEventListener("chat-sync", (event) => syncChat(JSON.parse(event.data).chat || []));
-events.addEventListener("agent-presence", (event) => setAgentPresence(JSON.parse(event.data).state));
 
 render();
 initialChat.forEach((item) => addChat(item.role, item.text));
-setAgentPresence("waiting");
