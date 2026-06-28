@@ -16,6 +16,6 @@ Add to `~/.pi/agent/settings.json` packages:
 
 ## Usage
 
-- `/lavish` — attach to most-recently opened lavish session
-- `/lavish <file.html>` — attach to specific artifact
-- `/lavish stop` — stop listening
+- `/pi-lavish` — attach to most-recently opened lavish session
+- `/pi-lavish <file.html>` — attach to specific artifact
+- `/pi-lavish stop` — stop listening

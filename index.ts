@@ -176,9 +176,9 @@ function startLoop(
 
 export default function (pi: ExtensionAPI) {
   // /lavish [file] | /lavish stop
-  pi.registerCommand("lavish", {
+  pi.registerCommand("pi-lavish", {
     description:
-      "Attach to a Lavish Editor session. Usage: /lavish [file.html] | /lavish stop",
+      "Attach to a Lavish Editor session. Usage: /pi-lavish [file.html] | /pi-lavish stop",
     handler: async (args: string, ctx: any) => {
       const arg = (args ?? "").trim();
 
