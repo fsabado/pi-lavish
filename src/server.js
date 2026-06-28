@@ -53,7 +53,6 @@ export async function serve({
   version = "",
   debug = false,
   log = null,
-  pollHeartbeatMs = 15_000,
   idleTimeoutMs = resolveIdleTimeoutMs(),
   host = bindHost(),
   linkHost: linkHostName = linkHost(),
@@ -62,8 +61,6 @@ export async function serve({
   const store = new SessionStore(stateFile);
   const events = new EventEmitter();
   const watchers = new Map();
-  const activePolls = new Map();
-  const deliveredFeedback = new Set();
   const sseClients = new Set();
   const verbose = debug || process.env.LAVISH_AXI_DEBUG === "1";
   const writeLog = typeof log === "function" ? log : (line) => process.stderr.write(`${line}\n`);
@@ -96,85 +93,11 @@ export async function serve({
       const existing = await store.findByKey(key);
       const session = await store.upsertSession(file, sessionUrl);
       if (existing?.status === "ended") {
-        clearFeedbackDelivery(key, activePolls, deliveredFeedback, events);
+        // session reopened — no-op (feedback file will be overwritten on next send)
       }
       logEvent?.(`session opened key=${key} file=${file}`);
       await watchSession(session, watchers, events, logEvent);
       res.json({ key, file, url, status: "opened" });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/poll", async (req, res, next) => {
-    try {
-      const file = await canonicalFile(String(req.query.file || ""));
-      const key = sessionKey(file);
-      const timeoutMs =
-        req.query.timeoutMs === undefined ? null : Math.max(0, Math.min(Number(req.query.timeoutMs || 0), 2147483647));
-      const immediate = await store.takeFeedback(key);
-      if (immediate.status !== "waiting") {
-        if (immediate.status === "feedback") markFeedbackDelivered(key, activePolls, deliveredFeedback, events);
-        res.json(immediate);
-        return;
-      }
-      const streamHeartbeat = timeoutMs === null;
-      let heartbeat = null;
-      if (streamHeartbeat) {
-        res.status(200).type("application/json");
-        res.write(" ");
-        heartbeat = setInterval(() => {
-          if (!res.writableEnded) res.write(" ");
-        }, pollHeartbeatMs);
-        heartbeat.unref?.();
-      }
-      setPollActive(key, activePolls, deliveredFeedback, events, true);
-      refreshIdleTimer();
-      const timer = timeoutMs === null ? null : setTimeout(() => respond().catch(handleRespondError), timeoutMs);
-      let cleaned = false;
-      let responding = false;
-      const cleanup = () => {
-        if (cleaned) return;
-        cleaned = true;
-        if (timer) clearTimeout(timer);
-        if (heartbeat) clearInterval(heartbeat);
-        events.off("feedback", onFeedback);
-        events.off("ended", onFeedback);
-        setPollActive(key, activePolls, deliveredFeedback, events, false);
-        refreshIdleTimer();
-      };
-      const respond = async () => {
-        if (responding || res.writableEnded) return;
-        responding = true;
-        try {
-          const result = await store.takeFeedback(key);
-          if (result.status === "feedback") markFeedbackDelivered(key, activePolls, deliveredFeedback, events);
-          if (streamHeartbeat) {
-            res.end(JSON.stringify(result));
-          } else {
-            res.json(result);
-          }
-        } finally {
-          cleanup();
-        }
-      };
-      function handleRespondError(error) {
-        if (streamHeartbeat) {
-          cleanup();
-          if (!res.writableEnded) res.destroy(error);
-          return;
-        }
-        next(error);
-      }
-      const onFeedback = (changedKey) => {
-        if (changedKey !== key || res.writableEnded) {
-          return;
-        }
-        respond().catch(handleRespondError);
-      };
-      events.on("feedback", onFeedback);
-      events.on("ended", onFeedback);
-      req.on("close", cleanup);
     } catch (error) {
       next(error);
     }
@@ -213,25 +136,9 @@ export async function serve({
   app.post("/api/:key/end", async (req, res, next) => {
     try {
       await store.endSession(req.params.key);
-      clearFeedbackDelivery(req.params.key, activePolls, deliveredFeedback, events);
       events.emit("ended", req.params.key);
       res.json({ status: "ended" });
       await shutdownIfNoLiveSessions();
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/:key/agent-reply", async (req, res, next) => {
-    try {
-      const text = String(req.body?.text || "");
-      const session = await store.addAgentReply(req.params.key, text);
-      if (!session) {
-        res.status(404).json({ error: "session not found" });
-        return;
-      }
-      events.emit("agent-reply", req.params.key, text);
-      res.json({ status: "sent" });
     } catch (error) {
       next(error);
     }
@@ -242,7 +149,6 @@ export async function serve({
       const file = await canonicalFile(req.body.file);
       const key = sessionKey(file);
       await store.endSession(key);
-      clearFeedbackDelivery(key, activePolls, deliveredFeedback, events);
       events.emit("ended", key);
       res.json({ status: "ended" });
       await shutdownIfNoLiveSessions();
@@ -320,28 +226,11 @@ export async function serve({
           res.write("event: reload\ndata: {}\n\n");
         }
       };
-      const sendAgentReply = (key, text) => {
-        if (key === req.params.key) {
-          res.write(`event: agent-reply\ndata: ${JSON.stringify({ text })}\n\n`);
-        }
-      };
-      const sendPresence = (key, state) => {
-        if (key === req.params.key) {
-          res.write(`event: agent-presence\ndata: ${JSON.stringify({ state })}\n\n`);
-        }
-      };
       res.write(`event: chat-sync\ndata: ${JSON.stringify({ chat: session?.chat || [] })}\n\n`);
-      res.write(
-        `event: agent-presence\ndata: ${JSON.stringify({ state: computePresence(req.params.key, activePolls, deliveredFeedback) })}\n\n`,
-      );
       events.on("reload", sendReload);
-      events.on("agent-reply", sendAgentReply);
-      events.on("agent-presence", sendPresence);
       req.on("close", () => {
         sseClients.delete(res);
         events.off("reload", sendReload);
-        events.off("agent-reply", sendAgentReply);
-        events.off("agent-presence", sendPresence);
         refreshIdleTimer();
       });
     } catch (error) {
@@ -434,10 +323,10 @@ export async function serve({
       idleTimer = null;
     }
     if (shuttingDown || idleTimeoutMs == null) return;
-    if (sseClients.size > 0 || activePolls.size > 0) return;
+    if (sseClients.size > 0) return;
     idleTimer = setTimeout(() => {
       idleTimer = null;
-      if (!shuttingDown && sseClients.size === 0 && activePolls.size === 0) {
+      if (!shuttingDown && sseClients.size === 0) {
         logEvent?.(`idle for ${idleTimeoutMs}ms with no connections, shutting down`);
         shutdown();
       }
@@ -451,7 +340,7 @@ export async function serve({
   // idle timer reap it once those connections drop. Best-effort: never let a read failure
   // block the end response.
   async function shutdownIfNoLiveSessions() {
-    if (sseClients.size > 0 || activePolls.size > 0) return;
+    if (sseClients.size > 0) return;
     try {
       const sessions = await store.listSessions();
       if (sessions.every((session) => session.status === "ended")) {
@@ -550,45 +439,6 @@ export function hasLiveReloadRootOptIn(html) {
   const searchableHtml = html.replace(/<!--[\s\S]*?-->/g, "");
   if (/<html\b[^>]*\sdata-lavish-live-reload-root(?:[\s=>/]|$)[^>]*>/i.test(searchableHtml)) return true;
   return /<meta\b(?=[^>]*name=["']lavish-live-reload["'])(?=[^>]*content=["']root["'])[^>]*>/i.test(searchableHtml);
-}
-
-function setPollActive(key, activePolls, deliveredFeedback, events, active) {
-  const previousPresence = computePresence(key, activePolls, deliveredFeedback);
-  const count = activePolls.get(key) || 0;
-  const nextCount = active ? count + 1 : Math.max(0, count - 1);
-  if (nextCount === count) return;
-  if (nextCount === 0) {
-    activePolls.delete(key);
-  } else {
-    activePolls.set(key, nextCount);
-    deliveredFeedback.delete(key);
-  }
-  const nextPresence = computePresence(key, activePolls, deliveredFeedback);
-  if (nextPresence !== previousPresence) events.emit("agent-presence", key, nextPresence);
-}
-
-function markFeedbackDelivered(key, activePolls, deliveredFeedback, events) {
-  const previousPresence = computePresence(key, activePolls, deliveredFeedback);
-  deliveredFeedback.add(key);
-  const nextPresence = computePresence(key, activePolls, deliveredFeedback);
-  if (nextPresence !== previousPresence) {
-    events.emit("agent-presence", key, nextPresence);
-  }
-}
-
-function clearFeedbackDelivery(key, activePolls, deliveredFeedback, events) {
-  const previousPresence = computePresence(key, activePolls, deliveredFeedback);
-  deliveredFeedback.delete(key);
-  const nextPresence = computePresence(key, activePolls, deliveredFeedback);
-  if (nextPresence !== previousPresence) {
-    events.emit("agent-presence", key, nextPresence);
-  }
-}
-
-export function computePresence(key, activePolls, deliveredFeedback) {
-  if (activePolls.has(key)) return "listening";
-  if (deliveredFeedback.has(key)) return "working";
-  return "waiting";
 }
 
 function chromeIcon(paths, size = 16, strokeWidth = 1.7) {
