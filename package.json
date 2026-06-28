@@ -2,5 +2,12 @@
   "name": "pi-lavish",
   "version": "0.1.0",
   "type": "module",
-  "description": "Pi extension — bridges Lavish chrome conversation into the live pi session"
+  "description": "Pi extension — bridges Lavish Editor chrome conversation into the live pi session",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
 }
