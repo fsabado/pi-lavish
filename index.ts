@@ -42,6 +42,7 @@ interface ActiveSession {
   key: string;
   timer: ReturnType<typeof setInterval>;
   cachedCtx: any;
+  agentBusy: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,7 @@ function startLoop(
 ) {
   const timer = setInterval(async () => {
     if (!active) return;
+    if (active.agentBusy) return; // don't poll while pi is processing
 
     try {
       const url = `${BASE_URL}/api/poll?file=${encodeURIComponent(
@@ -140,6 +142,7 @@ function startLoop(
 
         const text = parts.join("\n\n").trim();
         if (text) {
+          active.agentBusy = true;
           active.cachedCtx = ctx;
           try {
             active.cachedCtx.ui.setStatus("lavish", "🎨 lavish · working");
@@ -162,7 +165,7 @@ function startLoop(
     }
   }, 3000);
 
-  active = { file: session.file, key: session.key, timer, cachedCtx: ctx };
+  active = { file: session.file, key: session.key, timer, cachedCtx: ctx, agentBusy: false };
   try {
     ctx.ui.setStatus("lavish", "🎨 lavish · waiting");
   } catch {
@@ -231,6 +234,7 @@ export default function (pi: ExtensionAPI) {
   // agent_end → post last assistant text back to chrome
   pi.on("agent_end", async (event: any, ctx: any) => {
     if (!active) return;
+    active.agentBusy = false;
 
     // extract last assistant message text
     const messages: any[] = event?.messages ?? [];
