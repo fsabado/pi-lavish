@@ -14,13 +14,13 @@ import { serve } from "./server.js";
 import { canonicalFile, sessionKey, SessionStore } from "./session-store.js";
 import { initDefaultTelemetry } from "./telemetry.js";
 
-const COMMANDS = new Set(["open", "poll", "end", "stop", "server", "playbook", "design", "setup"]);
+const COMMANDS = new Set(["open", "end", "stop", "server", "playbook", "design", "setup"]);
 // SDK-reserved built-ins (e.g. `update`) must reach runAxiCli untouched; otherwise
 // the bare-arg normalization below would rewrite them into the hidden `open` command.
 const RESERVED = new Set(RESERVED_COMMANDS);
 const DESCRIPTION =
   "Lavish Editor helps agents turn rich HTML artifacts into collaborative human review surfaces. Whenever you are about to give user a complex response that will be easier to understand via a rich / interactive page, consider using Lavish Editor. " +
-  "First generate an interactive HTML artifact according to user request, then run `lavish-axi <html-file>` so the user can visually review it, annotate elements or selected text, queue prompts, and send feedback back through `lavish-axi poll`.";
+  "Generate an interactive HTML artifact, then run `lavish-axi <html-file>` to open it for review. The user annotates and sends feedback from the browser; the agent reads the feedback file on the next turn.";
 // Inlined at build time from package.json; falls back to reading package.json so source-run tests work.
 export const VERSION =
   process.env.LAVISH_AXI_BUILD_VERSION ||
@@ -52,7 +52,6 @@ export async function run(argv) {
         }),
       commands: {
         open: openCommand,
-        poll: pollCommand,
         end: endCommand,
         stop: stopCommand,
         playbook: playbookCommand,
@@ -125,8 +124,7 @@ export function createHomeOutput({ bin, sessions, includeSessions = true }) {
       "Run `lavish-axi <html-file>` to open or resume a Lavish Editor session",
       "Unless the user specifies another location, create HTML artifacts in the current working directory under `.lavish/`",
       "Lavish serves the html file through a local express.js server. If your html needs to reference other filesystem assets such as images, CSS, fonts, and local scripts, copy them into the same directory as the HTML file, then reference them with relative paths from that directory. Never prepend `/` to those asset paths - root paths won't work",
-      "Run `lavish-axi poll <html-file>` to wait for user feedback or browser-reported layout_warnings. It long-polls and stays silent until the user sends feedback, ends the session, or the real browser reports fresh layout_warnings, so leave it running - never kill it. Fix layout_warnings before involving the human. If your harness limits how long a foreground command may run, run the poll as a background task; if it gets killed or times out anyway, just re-run it - queued feedback is never lost",
-      "Run `lavish-axi end <html-file>` to end a session",
+      "After opening, respond with a 2-3 sentence summary, the full session URL, and tell the user to click Send in Lavish when ready. On your next turn read and delete `feedback_file` (path in the open response) to get their feedback. Edit the artifact HTML in place - the browser reloads automatically. For a new artifact run `lavish-axi open` again; sessions coexist",
       "Run `lavish-axi stop` to shut down the background server (it also self-stops when idle or after the last session ends with nothing connected)",
       `Run \`lavish-axi playbook <playbook_id>\` for focused artifact guidance. ${PLAYBOOK_ROUTER_HELP}`,
       DESIGN_SYSTEM_HINT,
@@ -187,118 +185,6 @@ async function openCommand(args) {
 
 export function shouldOpenBrowser(args, env) {
   return !args.includes("--no-open") && env.LAVISH_AXI_NO_OPEN !== "1";
-}
-
-async function pollCommand(args) {
-  const file = args[0];
-  if (!file) {
-    throw new AxiError("HTML file path is required", "VALIDATION_ERROR", ["Run `lavish-axi poll <html-file>`"]);
-  }
-  const absolute = await canonicalFile(file);
-  const baseUrl = await ensureServer();
-  const agentReply = flagValue(args, "--agent-reply");
-  if (agentReply) {
-    await postJson(`${baseUrl}/api/${sessionKey(absolute)}/agent-reply`, { text: agentReply });
-  }
-  const timeoutMs = flagValue(args, "--timeout-ms");
-  const timeoutQuery = timeoutMs ? `&timeoutMs=${encodeURIComponent(timeoutMs)}` : "";
-  // The indefinite poll looks hung from the agent's side (stdout stays empty until the user
-  // acts), so narrate the wait on stderr and leave re-run guidance behind if the agent's
-  // harness kills the process anyway. stderr keeps the stdout JSON contract intact.
-  const onPollSignal = (signal) => {
-    process.stderr.write(`\n${pollInterruptedText(absolute)}\n`);
-    process.exit(signal === "SIGINT" ? 130 : 143);
-  };
-  if (!timeoutMs) {
-    // Register before the banner write below: a harness that kills the poll as soon as the
-    // banner appears can deliver the signal before the next statement runs, and without a
-    // handler the default disposition exits silently with no re-run guidance.
-    process.on("SIGINT", onPollSignal);
-    process.on("SIGTERM", onPollSignal);
-  }
-  const waitReporter = timeoutMs ? null : startPollWaitReporter({ file: absolute });
-  try {
-    const response = await fetchJson(`${baseUrl}/api/poll?file=${encodeURIComponent(absolute)}${timeoutQuery}`, {
-      retries: 3,
-      retryDelayMs: 500,
-    });
-    return createPollOutput({ file: absolute, response });
-  } finally {
-    waitReporter?.stop();
-    if (!timeoutMs) {
-      process.off("SIGINT", onPollSignal);
-      process.off("SIGTERM", onPollSignal);
-    }
-  }
-}
-
-export function pollWaitBannerText(file) {
-  return (
-    `[lavish-axi] Long-polling for user feedback or layout_warnings on ${file}. This stays silent until the user sends feedback, ends the session, or the browser reports fresh layout_warnings - leave it running. ` +
-    `If it gets killed or times out, re-run \`lavish-axi poll ${file}\` - queued feedback is never lost.`
-  );
-}
-
-export function pollWaitTickText(elapsedMs) {
-  const minutes = Math.round(elapsedMs / 60_000);
-  return `[lavish-axi] Still waiting for user feedback (${minutes}m). Also waiting for fresh layout_warnings. Leave this running until the user acts or the browser reports fresh layout_warnings.`;
-}
-
-export function pollInterruptedText(file) {
-  return (
-    `[lavish-axi] Poll interrupted before user feedback arrived. The user may still be reviewing - ` +
-    `re-run \`lavish-axi poll ${file}\` to keep waiting; queued feedback is never lost.`
-  );
-}
-
-export function startPollWaitReporter({
-  file,
-  write = (line) => {
-    process.stderr.write(line);
-  },
-  intervalMs = 60_000,
-}) {
-  write(`${pollWaitBannerText(file)}\n`);
-  let elapsedMs = 0;
-  const timer = setInterval(() => {
-    elapsedMs += intervalMs;
-    write(`${pollWaitTickText(elapsedMs)}\n`);
-  }, intervalMs);
-  timer.unref?.();
-  return { stop: () => clearInterval(timer) };
-}
-
-export function createPollOutput({ file, response }) {
-  if (response.status === "missing") {
-    throw new AxiError("No active Lavish Editor session for this file", "NOT_FOUND", [
-      `Run \`lavish-axi ${file}\` first`,
-    ]);
-  }
-  if (response.status === "feedback") {
-    const layoutWarnings = Array.isArray(response.layout_warnings) ? response.layout_warnings : [];
-    return {
-      session: { file, status: "feedback" },
-      dom_snapshot: response.dom_snapshot || "",
-      prompts: response.prompts || [],
-      ...(layoutWarnings.length > 0 ? { layout_warnings: layoutWarnings } : {}),
-      next_step: createFeedbackNextStep(file, layoutWarnings.length),
-    };
-  }
-  if (response.status === "ended") {
-    return { session: { file, status: "ended" } };
-  }
-  return {
-    session: { file, status: response.status || "waiting" },
-    next_step: `No user feedback arrived before the optional timeout. Run \`lavish-axi poll ${file}\` without --timeout-ms to wait indefinitely - queued feedback is never lost, so re-running the poll is always safe.`,
-  };
-}
-
-function createFeedbackNextStep(file, layoutWarningCount) {
-  const layoutPrefix =
-    layoutWarningCount > 0
-      ? `${layoutWarningCount} layout warning${layoutWarningCount === 1 ? "" : "s"} detected - fix horizontal overflow, clipped text, or overlapping unreadable content in ${file}, then reload or re-open the artifact and re-check before involving the human. `
-      : `Apply the requested changes to ${file}. `;
-  return `${layoutPrefix}Do not respond to the user just yet. Now you must run \`lavish-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms unless the user ended the session. The poll waits silently until the user sends more feedback, ends the session, or reports fresh layout_warnings - never kill it. If your harness limits how long a foreground command may run, run the poll as a background task; if it still gets killed or times out, just re-run it - queued feedback is never lost.`;
 }
 
 async function endCommand(args) {
@@ -670,13 +556,11 @@ export function getCommandHelp(command) {
   return COMMAND_HELP[command] || null;
 }
 
-const TOP_LEVEL_HELP = `lavish-axi - Lavish Editor AXI\n\nUsage:\n  lavish-axi\n  lavish-axi <html-file> [--no-open] [--no-gate]\n  lavish-axi poll <html-file> [--agent-reply "..."]\n  lavish-axi end <html-file>\n  lavish-axi stop\n  lavish-axi playbook [playbook_id]\n  lavish-axi design\n  lavish-axi setup hooks\n\n${DESIGN_SYSTEM_HINT}\n\nNote: poll long-polls indefinitely by default until the user sends feedback, ends the session, or the browser reports fresh layout_warnings, staying silent while it waits - never kill it. Fix layout_warnings before involving the human. Do not pass --timeout-ms during normal agent use; it is for tests and debugging only. If your harness limits how long a foreground command may run, run the poll as a background task; if it gets killed or times out anyway, just re-run it - queued feedback is never lost.\n\n`;
+const TOP_LEVEL_HELP = `lavish-axi - Lavish Editor AXI\n\nUsage:\n  lavish-axi\n  lavish-axi <html-file> [--no-open] [--no-gate]\n  lavish-axi stop\n  lavish-axi playbook [playbook_id]\n  lavish-axi design\n  lavish-axi setup hooks\n\n${DESIGN_SYSTEM_HINT}\n\n`;
 
 const COMMAND_HELP = {
   open: `Usage: lavish-axi <html-file> [--no-open] [--no-gate]\n\nOpen or resume a Lavish Editor review session for an HTML artifact. Use --no-open when you need to ensure the server/session exists without opening another browser window. Use --no-gate to skip the open-time layout curtain for this browser open.\n`,
-  poll: `Usage: lavish-axi poll <html-file> [--agent-reply "..."]\n\nThis command long-polls indefinitely for queued user prompts and browser-reported layout_warnings, then returns them to the agent. It stays silent while it waits - that is normal, never kill it. Fix layout_warnings before involving the human. Do not pass --timeout-ms during normal agent use; it is for tests and debugging only. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if it still gets killed or times out, just re-run it - queued feedback is never lost. Use --agent-reply after applying prior feedback to display your response in Lavish Editor before waiting again.\n`,
-  end: `Usage: lavish-axi end <html-file>\n\nEnd a Lavish Editor session.\n`,
-  stop: `Usage: lavish-axi stop [--port <port>]\n\nShut down the background Lavish Editor server. The server also stops itself when no browser or poll has been connected for a while (LAVISH_AXI_IDLE_TIMEOUT_MS, default 30m) and immediately when the last session ends with nothing connected.\n`,
+  stop: `Usage: lavish-axi stop [--port <port>]\n\nShut down the background Lavish Editor server. The server also stops itself when no browser has been connected for a while (LAVISH_AXI_IDLE_TIMEOUT_MS, default 30m) and immediately when the last session ends with nothing connected.\n`,
   playbook: `Usage: lavish-axi playbook [playbook_id]\n\nList focused artifact guidance playbooks, or show one playbook by ID. Known IDs: diagram, table, comparison, plan, code, input, slides.\n\n${PLAYBOOK_ROUTER_HELP}\n\nExamples:\n  lavish-axi playbook\n  lavish-axi playbook diagram\n  lavish-axi playbook input\n`,
   design: `Usage: lavish-axi design\n\nShow a copy-pasteable CDN snippet for Tailwind CSS browser runtime v4 + DaisyUI v5 + themes, Mermaid diagram tooling, a content-to-playbook router, an optional layout safety CSS snippet, plus technical reference for DaisyUI components. ${PLAYBOOK_ROUTER_HELP} Lavish artifacts stay portable HTML. This CDN snippet is the design fallback, not the default: inspect the subject project before falling back, and paste the layout safety CSS only when useful for dense nested grid/flex layouts, badges, wide fonts, or local media. The strict priority order is: (1) if the user asked for a specific look or named design system, follow that; (2) otherwise, match the design system of the project the artifact is about, not necessarily your current working directory. If the artifact previews, proposes, or mocks a specific app's UI, use that app's own design system; (3) only when both come up empty, prefer the Lavish-recommended Tailwind + DaisyUI CDN snippet over hand-writing styles unless explicitly instructed otherwise by the user.\n`,
   setup: `Usage: lavish-axi setup hooks\n\nInstall or repair agent SessionStart hooks for lavish-axi ambient context in Claude Code, Codex, and OpenCode. Restart your agent session afterward to receive the context.\n`,
