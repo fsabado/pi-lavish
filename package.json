@@ -1,0 +1,6 @@
+{
+  "name": "pi-lavish",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi extension — bridges Lavish chrome conversation into the live pi session"
+}

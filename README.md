@@ -1,0 +1,21 @@
+# pi-lavish
+
+Pi extension that bridges [Lavish Editor](https://github.com/kunchenguid/lavish-axi)
+chrome conversations into the live pi session.
+
+## Install
+
+Add to `~/.pi/agent/settings.json` packages:
+
+```json
+{
+  "source": "git:git@git-personal:fsabado/pi-lavish",
+  "extensions": ["./index.ts"]
+}
+```
+
+## Usage
+
+- `/lavish` — attach to most-recently opened lavish session
+- `/lavish <file.html>` — attach to specific artifact
+- `/lavish stop` — stop listening
